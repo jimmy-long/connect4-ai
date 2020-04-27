@@ -1,4 +1,5 @@
 import math
+import numpy as np
 
 RED = "R"
 YELLOW = "Y"
@@ -7,19 +8,26 @@ EMPTY = None
 BOARD_WIDTH = 7
 BOARD_HEIGHT = 6
 
+CENTER_WEIGHT = 3
+
+MAX_THREE_IN_A_ROW_WEIGHT = 5
+MAX_TWO_IN_A_ROW_WEIGHT = 2
+
+MIN_THREE_IN_A_ROW_WEIGHT = -4
+MIN_TWO_IN_A_ROW_WEIGHT = -1
+
 def initial_board():
     """
     Generates a 7x7 Conncet 4 board with no pieces.
     """
-    row = [EMPTY] * BOARD_WIDTH
-    return [row] * BOARD_HEIGHT
+    return np.full((BOARD_HEIGHT, BOARD_WIDTH), EMPTY)
 
 def player(board):
     """
     Determines if it is the red or yellow players turn.
     Assumes that the red player plays first.
     """
-    return YELLOW if sum(1 for row in board for val in row if val is not None) % 2 == 0 else RED
+    return YELLOW if (board == EMPTY).sum() % 2 == 0 else RED
 
 def actions(board):
     """
@@ -41,19 +49,12 @@ def result(board, action):
     Returns the board that results from the active player taking the specified action.
     Assumes the action is valid!!
     """
-    placed = False
-    new_board = []
-    for row in range(len(board)):
-        new_row = []
-        for col in range(len(board[row])):
-            # Check if a piece is being dropped in this column.
-            # Also check if the piece could fall further down the current column. If it cannot, place the new piece.
-            if not placed and col == action and (row == len(board) - 1 or board[row + 1][col] is not None):
-                new_row.append(player(board))
-                placed = True
-            else:
-                new_row.append(board[row][col])
-        new_board.append(new_row)
+    new_board = np.copy(board)
+    
+    for row in reversed(range(0, BOARD_HEIGHT)):
+        if board[row][action] == None:
+            new_board[row][action] = player(board)
+            break
 
     return new_board     
 
@@ -94,17 +95,72 @@ def utility(board):
     """
     game_winner = winner(board)
     
+    # Handle the case of a board that has a winner.
     if game_winner == RED:
-        return 1
+        return float("inf")
     elif game_winner == YELLOW:
-        return -1
-    return 0
+        return float("-inf")
+    
+    # Build from 0.
+    utility = 0
+
+    # Score the center column - it is the most valuable.
+    center_col = board[:, BOARD_WIDTH // 2]
+    utility += (center_col == RED).sum() * CENTER_WEIGHT
+
+    # Score row only positions
+    for y in range(BOARD_HEIGHT):
+        row = board[y,:]
+        for x in range(BOARD_WIDTH - 3):
+            board_slice = row[x : x + 4]
+            utility += slice_utility(board_slice)
+
+    # Score column only positions
+    for x in range(BOARD_WIDTH):
+        column = board[:,x]
+        for y in range(BOARD_HEIGHT - 3):
+            board_slice = column[y : y + 4]
+            utility += slice_utility(board_slice)
+
+    # Score diaogonal positions
+    for y in range(BOARD_HEIGHT - 3):
+        for x in range(BOARD_WIDTH - 3):
+            # Top->Down and Left->Right
+            board_slice = [board[y+i][x+i] for i in range(4)]
+            utility += slice_utility(board_slice)
+
+            # Down->Top and Left->Right
+            board_slice = [board[y+3-i][x+i] for i in range(4)]
+            utility += slice_utility(board_slice)
+
+    return utility
+
+def slice_utility(board_slice):
+    utility = 0
+    board_slice = np.array(board_slice)
+    max_pieces = (board_slice == RED).sum()
+    min_pieces = (board_slice == YELLOW).sum()
+
+    # Increase utility if max has 2 or 3 positions in a slice that min has no pieces in.
+    if max_pieces == 3 and min_pieces == 0:
+        utility += MAX_THREE_IN_A_ROW_WEIGHT
+    elif max_pieces == 2 and min_pieces == 0:
+        utility += MAX_TWO_IN_A_ROW_WEIGHT
+
+    # Decrease utility if min has 2 or 3 positions in a slice that max has no pieces in.
+    if min_pieces == 3 and max_pieces == 0:
+        utility += MIN_THREE_IN_A_ROW_WEIGHT
+    elif min_pieces == 2 and max_pieces == 0:
+        utility += MIN_TWO_IN_A_ROW_WEIGHT
+
+    return utility
+
 
 def minimax(board):
     """
     Returns the optimal move for the active player on the given baord.
     """
-    return alphabeta(board, 6, float("-inf"), float("inf"))[1]
+    return alphabeta(board, 5, float("-inf"), float("inf"))[1]
 
 def alphabeta(board, depth, alpha, beta):
     """
@@ -172,17 +228,6 @@ def main():
             running = False
 
         player_turn = not player_turn
-
-def testboard():
-    board = [
-        [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-        [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-        [RED, EMPTY, EMPTY, RED, YELLOW, EMPTY, EMPTY],
-        [YELLOW, YELLOW, EMPTY, YELLOW, YELLOW, EMPTY, EMPTY],
-        [RED, RED, EMPTY, YELLOW, YELLOW, RED, EMPTY],
-        [RED, RED, YELLOW, YELLOW, YELLOW, RED, EMPTY]
-    ]
-    print(winner(board))
 
 if __name__ == "__main__":
     main()
